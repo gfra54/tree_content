@@ -2,10 +2,11 @@
 
 # ------------------------------------------------------------
 # tree_content
-# Recursively prints all files in a directory in structured format.
-# Excluded files are shown as: === path [not listed] ===
-# Skips hidden paths and files modified during execution.
-# Ensures only plain-text files are printed.
+# Structured recursive file printer with safe exclusions.
+# Supports:
+#   --exclude="csv"
+#   --include-only="csv"
+#   --output="file"
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -14,11 +15,12 @@ START_TIME=$(date +%s)
 
 TARGET_DIR="."
 USER_EXCLUDES=""
+INCLUDE_ONLY=""
 OUTPUT_FILE=""
 TMP_OUTPUT=""
 
 # ------------------------------------------------------------
-# Default Exclusions (must match README)
+# Default Exclusions (README aligned)
 # ------------------------------------------------------------
 
 EXCLUDED_DIRS=(
@@ -57,6 +59,10 @@ while [[ $# -gt 0 ]]; do
       USER_EXCLUDES="${1#*=}"
       shift
       ;;
+    --include-only=*)
+      INCLUDE_ONLY="${1#*=}"
+      shift
+      ;;
     --output=*)
       OUTPUT_FILE="${1#*=}"
       shift
@@ -77,7 +83,6 @@ if [[ ! -d "$TARGET_DIR" ]]; then
   exit 1
 fi
 
-# Normalize directory path (remove trailing slash)
 TARGET_DIR="${TARGET_DIR%/}"
 
 # ------------------------------------------------------------
@@ -90,12 +95,26 @@ if [[ -n "$OUTPUT_FILE" ]]; then
 fi
 
 # ------------------------------------------------------------
-# Helper Functions
+# Helpers
 # ------------------------------------------------------------
 
+csv_contains() {
+  local value="$1"
+  local csv="$2"
+
+  [[ -z "$csv" ]] && return 1
+
+  IFS=',' read -ra TERMS <<< "$csv"
+  for t in "${TERMS[@]}"; do
+    [[ -z "$t" ]] && continue
+    [[ "$value" == *"$t"* ]] && return 0
+  done
+
+  return 1
+}
+
 is_hidden() {
-  local path="$1"
-  [[ "$path" == */.* ]]
+  [[ "$1" == */.* ]]
 }
 
 is_excluded_dir() {
@@ -107,9 +126,8 @@ is_excluded_dir() {
 }
 
 is_excluded_file() {
-  local file="$1"
   local base
-  base=$(basename "$file")
+  base=$(basename "$1")
   for f in "${EXCLUDED_FILES[@]}"; do
     [[ "$base" == "$f" ]] && return 0
   done
@@ -123,26 +141,21 @@ is_excluded_pattern() {
     [[ "$file" == *"$p"* ]] && return 0
   done
 
-  if [[ -n "$USER_EXCLUDES" ]]; then
-    IFS=',' read -ra USER <<< "$USER_EXCLUDES"
-    for u in "${USER[@]}"; do
-      [[ "$file" == *"$u"* ]] && return 0
-    done
+  if csv_contains "$file" "$USER_EXCLUDES"; then
+    return 0
   fi
 
   return 1
 }
 
 is_excluded_extension() {
-  local file="$1"
-  local ext="${file##*.}"
+  local ext="${1##*.}"
   for e in "${EXCLUDED_EXTENSIONS[@]}"; do
     [[ "$ext" == "$e" ]] && return 0
   done
   return 1
 }
 
-# Final safety layer: only allow plain-text files
 is_plain_text() {
   local mime
   mime=$(file --mime-type -b "$1")
@@ -151,13 +164,7 @@ is_plain_text() {
     text/*)
       return 0
       ;;
-    application/json)
-      return 0
-      ;;
-    application/xml)
-      return 0
-      ;;
-    application/javascript)
+    application/json|application/xml|application/javascript)
       return 0
       ;;
     *)
@@ -167,33 +174,24 @@ is_plain_text() {
 }
 
 was_modified_during_run() {
-  local file="$1"
   local mod_time
-
-  # Linux (GNU stat) or macOS (BSD stat)
-  mod_time=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file")
+  mod_time=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1")
   (( mod_time > START_TIME ))
 }
 
 # ------------------------------------------------------------
-# Main Processing
+# Main
 # ------------------------------------------------------------
 
 find "$TARGET_DIR" -type f | sort | while read -r file; do
 
   # Skip hidden paths
-  if is_hidden "$file"; then
-    continue
-  fi
+  is_hidden "$file" && continue
 
-  # Skip files modified during execution
-  if was_modified_during_run "$file"; then
-    continue
-  fi
+  # Skip modified during execution
+  was_modified_during_run "$file" && continue
 
-  # Compute relative path
   rel="${file#$TARGET_DIR/}"
-  [[ "$file" == "$TARGET_DIR" ]] && rel=$(basename "$file")
 
   # Hard exclusions
   if is_excluded_dir "$file" ||
@@ -205,13 +203,25 @@ find "$TARGET_DIR" -type f | sort | while read -r file; do
     continue
   fi
 
-  # MIME safety check
+  # MIME safety
   if ! is_plain_text "$file"; then
     echo "=== $rel [not listed] ==="
     continue
   fi
 
-  # Included file
+  # Include-only mode
+  if [[ -n "$INCLUDE_ONLY" ]]; then
+    if csv_contains "$file" "$INCLUDE_ONLY"; then
+      echo "=== $rel ==="
+      cat "$file"
+      echo
+    else
+      echo "=== $rel [not listed] ==="
+    fi
+    continue
+  fi
+
+  # Default behavior (no include-only)
   echo "=== $rel ==="
   cat "$file"
   echo
