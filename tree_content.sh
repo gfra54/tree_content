@@ -2,11 +2,20 @@
 
 # ------------------------------------------------------------
 # tree_content
-# Structured recursive file printer with safe exclusions.
-# Supports:
+#
+# Recursively prints project files in structured format.
+#
+# Features:
 #   --exclude="csv"
 #   --include-only="csv"
+#   --display-unlisted=true
 #   --output="file"
+#
+# Safe by default:
+#   - Skips hidden paths
+#   - Skips modified-during-run files
+#   - Excludes sensitive/binary/media files
+#   - Verifies MIME is plain text
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -16,11 +25,12 @@ START_TIME=$(date +%s)
 TARGET_DIR="."
 USER_EXCLUDES=""
 INCLUDE_ONLY=""
+DISPLAY_UNLISTED="false"
 OUTPUT_FILE=""
 TMP_OUTPUT=""
 
 # ------------------------------------------------------------
-# Default Exclusions (README aligned)
+# Default Exclusions
 # ------------------------------------------------------------
 
 EXCLUDED_DIRS=(
@@ -61,6 +71,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --include-only=*)
       INCLUDE_ONLY="${1#*=}"
+      shift
+      ;;
+    --display-unlisted=*)
+      DISPLAY_UNLISTED="${1#*=}"
       shift
       ;;
     --output=*)
@@ -109,8 +123,11 @@ csv_contains() {
     [[ -z "$t" ]] && continue
     [[ "$value" == *"$t"* ]] && return 0
   done
-
   return 1
+}
+
+should_print_unlisted() {
+  [[ "$DISPLAY_UNLISTED" == "true" ]]
 }
 
 is_hidden() {
@@ -118,9 +135,8 @@ is_hidden() {
 }
 
 is_excluded_dir() {
-  local file="$1"
   for dir in "${EXCLUDED_DIRS[@]}"; do
-    [[ "$file" == *"/$dir/"* ]] && return 0
+    [[ "$1" == *"/$dir/"* ]] && return 0
   done
   return 1
 }
@@ -135,15 +151,11 @@ is_excluded_file() {
 }
 
 is_excluded_pattern() {
-  local file="$1"
-
   for p in "${EXCLUDED_PATTERNS[@]}"; do
-    [[ "$file" == *"$p"* ]] && return 0
+    [[ "$1" == *"$p"* ]] && return 0
   done
 
-  if csv_contains "$file" "$USER_EXCLUDES"; then
-    return 0
-  fi
+  csv_contains "$1" "$USER_EXCLUDES" && return 0
 
   return 1
 }
@@ -161,10 +173,7 @@ is_plain_text() {
   mime=$(file --mime-type -b "$1")
 
   case "$mime" in
-    text/*)
-      return 0
-      ;;
-    application/json|application/xml|application/javascript)
+    text/*|application/json|application/xml|application/javascript)
       return 0
       ;;
     *)
@@ -179,16 +188,20 @@ was_modified_during_run() {
   (( mod_time > START_TIME ))
 }
 
+print_unlisted() {
+  local rel="$1"
+  if should_print_unlisted; then
+    echo "=== $rel [not listed] ==="
+  fi
+}
+
 # ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 
 find "$TARGET_DIR" -type f | sort | while read -r file; do
 
-  # Skip hidden paths
   is_hidden "$file" && continue
-
-  # Skip modified during execution
   was_modified_during_run "$file" && continue
 
   rel="${file#$TARGET_DIR/}"
@@ -199,13 +212,13 @@ find "$TARGET_DIR" -type f | sort | while read -r file; do
      is_excluded_pattern "$file" ||
      is_excluded_extension "$file"; then
 
-    echo "=== $rel [not listed] ==="
+    print_unlisted "$rel"
     continue
   fi
 
   # MIME safety
   if ! is_plain_text "$file"; then
-    echo "=== $rel [not listed] ==="
+    print_unlisted "$rel"
     continue
   fi
 
@@ -216,12 +229,12 @@ find "$TARGET_DIR" -type f | sort | while read -r file; do
       cat "$file"
       echo
     else
-      echo "=== $rel [not listed] ==="
+      print_unlisted "$rel"
     fi
     continue
   fi
 
-  # Default behavior (no include-only)
+  # Default behavior
   echo "=== $rel ==="
   cat "$file"
   echo
