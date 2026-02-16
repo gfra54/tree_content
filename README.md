@@ -42,13 +42,13 @@ This preserves full project structure without dumping binaries or secrets.
 ## Run Without Installing
 
 ```bash
-wget -qO- https://example.com/tree_content.sh | bash
+wget -qO- https://github.com/gfra54/tree_content/raw/refs/heads/main/tree_content.sh | bash
 ```
 
 Pass arguments like this:
 
 ```bash
-wget -qO- https://example.com/tree_content.sh | bash -s -- \
+wget -qO- https://github.com/gfra54/tree_content/raw/refs/heads/main/tree_content.sh | bash -s -- \
   --exclude="tests" \
   --output="context.txt"
 ```
@@ -60,7 +60,7 @@ wget -qO- https://example.com/tree_content.sh | bash -s -- \
 Install system-wide so you can use it anywhere:
 
 ```bash
-sudo wget -qO /usr/bin/tree_content https://example.com/tree_content.sh \
+sudo wget -qO /usr/bin/tree_content https://github.com/gfra54/tree_content/raw/refs/heads/main/tree_content.sh \
   && sudo chmod +x /usr/bin/tree_content
 ```
 
@@ -73,7 +73,7 @@ tree_content
 ### Alternative (curl)
 
 ```bash
-sudo curl -fsSL https://example.com/tree_content.sh -o /usr/bin/tree_content \
+sudo curl -fsSL https://github.com/gfra54/tree_content/raw/refs/heads/main/tree_content.sh -o /usr/bin/tree_content \
   && sudo chmod +x /usr/bin/tree_content
 ```
 
