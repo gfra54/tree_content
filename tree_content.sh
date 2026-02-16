@@ -1,161 +1,168 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-#
+# ------------------------------------------------------------
 # tree_content
-#
-# Recursively lists files and prints their contents.
-# Excluded files are still listed but marked as [not listed].
-#
-# Features:
-# - Supports --exclude="term1,term2"
-# - Supports --output="file"
-# - Hardcoded exclusions for binary, media, archives, secrets, build artifacts
-# - Hidden files excluded
-# - Files modified during execution excluded
-# - Cross-platform stat support (Linux/macOS)
-#
+# Recursively prints file tree and file contents.
+# Supports exclusion, inclusion filters, size limits,
+# binary detection, and optional output file.
+# ------------------------------------------------------------
 
-TARGET_DIR="${1:-.}"
-START_TIME=$(date +%s)
+set -euo pipefail
 
-USER_EXCLUDE_PARAM=""
+# -------------------------
+# Default configuration
+# -------------------------
+
+TARGET_DIR="."
+EXCLUDE_PATTERNS=""
+INCLUDE_ONLY=""
+MAX_SIZE=""
 OUTPUT_FILE=""
+TMP_OUTPUT=""
 
-# Comprehensive exclusion list
-ALWAYS_EXCLUDED=(
-    # Archives
-    ".tar" ".gz" ".zip" ".rar" ".7z" ".bz2"
+# -------------------------
+# Usage function
+# -------------------------
 
-    # Dependencies
-    "node_modules" "vendor"
+usage() {
+  echo "Usage:"
+  echo "  tree_content [directory] [options]"
+  echo
+  echo "Options:"
+  echo "  --exclude=dir1,dir2        Comma-separated directories to exclude"
+  echo "  --include-only=ext1,ext2   Only include file extensions (e.g. php,js)"
+  echo "  --max-size=SIZE            Skip files larger than SIZE (e.g. 1M, 500K)"
+  echo "  --output=FILE              Write output to FILE instead of stdout"
+  exit 1
+}
 
-    # VCS
-    ".git" ".svn"
-
-    # Environment / secrets
-    ".env" ".env." "secrets" "credentials"
-    ".key" ".pem" ".crt"
-    "id_rsa" "id_dsa"
-    "wp-config"
-
-    # Build output
-    "dist" "build" "target" "coverage"
-    ".next" ".nuxt" ".out" ".cache"
-    "tmp"
-
-    # Databases
-    ".sqlite" ".db" ".sql"
-
-    # IDE / system
-    ".DS_Store" ".idea" ".vscode" "Thumbs.db"
-
-    # Media files
-    ".png" ".jpg" ".jpeg" ".gif" ".webp" ".svg"
-    ".mp4" ".mov" ".avi" ".mkv" ".mp3" ".wav"
-    ".ogg" ".flac"
-
-    # Documents
-    ".pdf" ".doc" ".docx" ".xls" ".xlsx" ".ppt" ".pptx"
-
-    # Binaries
-    ".exe" ".dll" ".so" ".dylib" ".bin" ".iso"
-)
-
+# -------------------------
 # Parse arguments
-for arg in "$@"; do
-    case $arg in
-        --exclude=*)
-            USER_EXCLUDE_PARAM="${arg#*=}"
-            shift
-            ;;
-        --output=*)
-            OUTPUT_FILE="${arg#*=}"
-            shift
-            ;;
-    esac
+# -------------------------
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --exclude=*)
+      EXCLUDE_PATTERNS="${1#*=}"
+      shift
+      ;;
+    --include-only=*)
+      INCLUDE_ONLY="${1#*=}"
+      shift
+      ;;
+    --max-size=*)
+      MAX_SIZE="${1#*=}"
+      shift
+      ;;
+    --output=*)
+      OUTPUT_FILE="${1#*=}"
+      shift
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      TARGET_DIR="$1"
+      shift
+      ;;
+  esac
 done
 
-IFS=',' read -r -a USER_EXCLUDED <<< "$USER_EXCLUDE_PARAM"
+# -------------------------
+# Validate directory
+# -------------------------
 
-EXCLUDE_TERMS=("${ALWAYS_EXCLUDED[@]}" "${USER_EXCLUDED[@]}")
-
-# Initialize output file if provided
-if [[ -n "$OUTPUT_FILE" ]]; then
-    > "$OUTPUT_FILE"
+if [[ ! -d "$TARGET_DIR" ]]; then
+  echo "Error: Directory '$TARGET_DIR' does not exist."
+  exit 1
 fi
 
-write_output() {
-    local content="$1"
+# -------------------------
+# Build find command
+# -------------------------
 
-    if [[ -n "$OUTPUT_FILE" ]]; then
-        echo -e "$content" >> "$OUTPUT_FILE"
-    else
-        echo -e "$content"
+FIND_CMD=(find "$TARGET_DIR" -type f)
+
+# Exclude directories
+if [[ -n "$EXCLUDE_PATTERNS" ]]; then
+  IFS=',' read -ra EXCLUDES <<< "$EXCLUDE_PATTERNS"
+  for pattern in "${EXCLUDES[@]}"; do
+    FIND_CMD+=( ! -path "*/$pattern/*" )
+  done
+fi
+
+# Include only extensions
+if [[ -n "$INCLUDE_ONLY" ]]; then
+  IFS=',' read -ra INCLUDES <<< "$INCLUDE_ONLY"
+  FIND_CMD+=( \( )
+  for i in "${!INCLUDES[@]}"; do
+    ext="${INCLUDES[$i]}"
+    if [[ $i -ne 0 ]]; then
+      FIND_CMD+=( -o )
     fi
-}
+    FIND_CMD+=( -iname "*.$ext" )
+  done
+  FIND_CMD+=( \) )
+fi
 
-should_exclude() {
-    local path="$1"
+# Max size
+if [[ -n "$MAX_SIZE" ]]; then
+  FIND_CMD+=( -size "-$MAX_SIZE" )
+fi
 
-    for term in "${EXCLUDE_TERMS[@]}"; do
-        [[ -z "$term" ]] && continue
-        if [[ "$path" == *"$term"* ]]; then
-            return 0
-        fi
-    done
+# -------------------------
+# Prepare output
+# -------------------------
 
-    return 1
-}
+if [[ -n "$OUTPUT_FILE" ]]; then
+  TMP_OUTPUT=$(mktemp)
+  exec > "$TMP_OUTPUT"
+fi
 
-process_file() {
-    local file_path="$1"
-    local relative_path="${file_path#./}"
+# -------------------------
+# Print directory tree
+# -------------------------
 
-    if [[ "$file_path" == ./* ]]; then
-        file_path="${file_path#./}"
-    fi
+echo "============================================================"
+echo "DIRECTORY TREE"
+echo "============================================================"
+echo
 
-    # Skip the script itself if needed
-    if [[ "$file_path" == "bin/tree_content" ]]; then
-        return
-    fi
+tree -a "$TARGET_DIR" 2>/dev/null || echo "(tree command not installed)"
 
-    if [[ ! -f "$file_path" ]]; then
-        return
-    fi
+echo
+echo "============================================================"
+echo "FILE CONTENTS"
+echo "============================================================"
+echo
 
-    # Check modification time
-    FILE_TIME=$(stat -c %Y "$file_path" 2>/dev/null || stat -f %m "$file_path" 2>/dev/null)
-    if [[ "$FILE_TIME" -ge "$START_TIME" ]]; then
-        return
-    fi
+# -------------------------
+# Process files
+# -------------------------
 
-    # If excluded, print marker only
-    if should_exclude "$file_path"; then
-        write_output "=== $relative_path [not listed] ==="
-        return
-    fi
+while IFS= read -r file; do
 
-    # Print full content
-    write_output "=== $relative_path ==="
+  # Skip binary files
+  if file --mime "$file" | grep -q binary; then
+    continue
+  fi
 
-    if [[ -n "$OUTPUT_FILE" ]]; then
-        cat "$file_path" >> "$OUTPUT_FILE"
-        echo >> "$OUTPUT_FILE"
-    else
-        cat "$file_path"
-        echo
-    fi
-}
+  echo "------------------------------------------------------------"
+  echo "FILE: $file"
+  echo "------------------------------------------------------------"
+  echo
 
-export -f process_file
-export -f should_exclude
-export -f write_output
-export START_TIME
-export EXCLUDE_TERMS
-export OUTPUT_FILE
+  cat "$file"
+  echo
+  echo
 
-find "$TARGET_DIR" -type f \
-    -not -path '*/.*' \
-    -not -path '*/_*' \
-    -exec bash -c 'process_file "$0"' {} \;
+done < <("${FIND_CMD[@]}" | sort)
+
+# -------------------------
+# Finalize output
+# -------------------------
+
+if [[ -n "$OUTPUT_FILE" ]]; then
+  mv "$TMP_OUTPUT" "$OUTPUT_FILE"
+  echo "Output written to $OUTPUT_FILE"
+fi
