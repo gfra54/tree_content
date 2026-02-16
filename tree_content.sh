@@ -15,6 +15,7 @@
 # - Cross-platform stat support (Linux/macOS)
 #
 
+TARGET_DIR="${1:-.}"
 START_TIME=$(date +%s)
 
 USER_EXCLUDE_PARAM=""
@@ -154,7 +155,7 @@ export START_TIME
 export EXCLUDE_TERMS
 export OUTPUT_FILE
 
-find . -type f \
+find "$TARGET_DIR" -type f \
     -not -path '*/.*' \
     -not -path '*/_*' \
     -exec bash -c 'process_file "$0"' {} \;
