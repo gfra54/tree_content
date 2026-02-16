@@ -2,56 +2,59 @@
 
 # ------------------------------------------------------------
 # tree_content
-# Recursively prints file tree and file contents.
-# Supports exclusion, inclusion filters, size limits,
-# binary detection, and optional output file.
+# Recursively prints all files in a directory in structured format.
+# Excluded files are shown as: === path [not listed] ===
+# Skips hidden paths and files modified during execution.
+# Ensures only plain-text files are printed.
 # ------------------------------------------------------------
 
 set -euo pipefail
 
-# -------------------------
-# Default configuration
-# -------------------------
+START_TIME=$(date +%s)
 
 TARGET_DIR="."
-EXCLUDE_PATTERNS=""
-INCLUDE_ONLY=""
-MAX_SIZE=""
+USER_EXCLUDES=""
 OUTPUT_FILE=""
 TMP_OUTPUT=""
 
-# -------------------------
-# Usage function
-# -------------------------
+# ------------------------------------------------------------
+# Default Exclusions (must match README)
+# ------------------------------------------------------------
 
-usage() {
-  echo "Usage:"
-  echo "  tree_content [directory] [options]"
-  echo
-  echo "Options:"
-  echo "  --exclude=dir1,dir2        Comma-separated directories to exclude"
-  echo "  --include-only=ext1,ext2   Only include file extensions (e.g. php,js)"
-  echo "  --max-size=SIZE            Skip files larger than SIZE (e.g. 1M, 500K)"
-  echo "  --output=FILE              Write output to FILE instead of stdout"
-  exit 1
-}
+EXCLUDED_DIRS=(
+  node_modules vendor
+  .git .svn
+  dist build target coverage .next .nuxt .out .cache tmp
+  .idea .vscode
+)
 
-# -------------------------
-# Parse arguments
-# -------------------------
+EXCLUDED_FILES=(
+  .DS_Store Thumbs.db
+)
+
+EXCLUDED_PATTERNS=(
+  .env .env. secrets credentials
+  .key .pem .crt id_rsa id_dsa wp-config
+)
+
+EXCLUDED_EXTENSIONS=(
+  tar gz zip rar 7z bz2
+  sqlite db sql
+  png jpg jpeg gif webp svg
+  mp4 mov avi mkv
+  mp3 wav ogg flac
+  pdf doc docx xls xlsx ppt pptx
+  exe dll so dylib bin iso
+)
+
+# ------------------------------------------------------------
+# Argument Parsing
+# ------------------------------------------------------------
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --exclude=*)
-      EXCLUDE_PATTERNS="${1#*=}"
-      shift
-      ;;
-    --include-only=*)
-      INCLUDE_ONLY="${1#*=}"
-      shift
-      ;;
-    --max-size=*)
-      MAX_SIZE="${1#*=}"
+      USER_EXCLUDES="${1#*=}"
       shift
       ;;
     --output=*)
@@ -59,7 +62,8 @@ while [[ $# -gt 0 ]]; do
       shift
       ;;
     -*)
-      usage
+      echo "Unknown option: $1"
+      exit 1
       ;;
     *)
       TARGET_DIR="$1"
@@ -68,99 +72,155 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# -------------------------
-# Validate directory
-# -------------------------
-
 if [[ ! -d "$TARGET_DIR" ]]; then
   echo "Error: Directory '$TARGET_DIR' does not exist."
   exit 1
 fi
 
-# -------------------------
-# Build find command
-# -------------------------
+# Normalize directory path (remove trailing slash)
+TARGET_DIR="${TARGET_DIR%/}"
 
-FIND_CMD=(find "$TARGET_DIR" -type f)
-
-# Exclude directories
-if [[ -n "$EXCLUDE_PATTERNS" ]]; then
-  IFS=',' read -ra EXCLUDES <<< "$EXCLUDE_PATTERNS"
-  for pattern in "${EXCLUDES[@]}"; do
-    FIND_CMD+=( ! -path "*/$pattern/*" )
-  done
-fi
-
-# Include only extensions
-if [[ -n "$INCLUDE_ONLY" ]]; then
-  IFS=',' read -ra INCLUDES <<< "$INCLUDE_ONLY"
-  FIND_CMD+=( \( )
-  for i in "${!INCLUDES[@]}"; do
-    ext="${INCLUDES[$i]}"
-    if [[ $i -ne 0 ]]; then
-      FIND_CMD+=( -o )
-    fi
-    FIND_CMD+=( -iname "*.$ext" )
-  done
-  FIND_CMD+=( \) )
-fi
-
-# Max size
-if [[ -n "$MAX_SIZE" ]]; then
-  FIND_CMD+=( -size "-$MAX_SIZE" )
-fi
-
-# -------------------------
-# Prepare output
-# -------------------------
+# ------------------------------------------------------------
+# Output Redirection
+# ------------------------------------------------------------
 
 if [[ -n "$OUTPUT_FILE" ]]; then
   TMP_OUTPUT=$(mktemp)
   exec > "$TMP_OUTPUT"
 fi
 
-# -------------------------
-# Print directory tree
-# -------------------------
+# ------------------------------------------------------------
+# Helper Functions
+# ------------------------------------------------------------
 
-echo "============================================================"
-echo "DIRECTORY TREE"
-echo "============================================================"
-echo
+is_hidden() {
+  local path="$1"
+  [[ "$path" == */.* ]]
+}
 
-tree -a "$TARGET_DIR" 2>/dev/null || echo "(tree command not installed)"
+is_excluded_dir() {
+  local file="$1"
+  for dir in "${EXCLUDED_DIRS[@]}"; do
+    [[ "$file" == *"/$dir/"* ]] && return 0
+  done
+  return 1
+}
 
-echo
-echo "============================================================"
-echo "FILE CONTENTS"
-echo "============================================================"
-echo
+is_excluded_file() {
+  local file="$1"
+  local base
+  base=$(basename "$file")
+  for f in "${EXCLUDED_FILES[@]}"; do
+    [[ "$base" == "$f" ]] && return 0
+  done
+  return 1
+}
 
-# -------------------------
-# Process files
-# -------------------------
+is_excluded_pattern() {
+  local file="$1"
 
-while IFS= read -r file; do
+  for p in "${EXCLUDED_PATTERNS[@]}"; do
+    [[ "$file" == *"$p"* ]] && return 0
+  done
 
-  # Skip binary files
-  if file --mime "$file" | grep -q binary; then
+  if [[ -n "$USER_EXCLUDES" ]]; then
+    IFS=',' read -ra USER <<< "$USER_EXCLUDES"
+    for u in "${USER[@]}"; do
+      [[ "$file" == *"$u"* ]] && return 0
+    done
+  fi
+
+  return 1
+}
+
+is_excluded_extension() {
+  local file="$1"
+  local ext="${file##*.}"
+  for e in "${EXCLUDED_EXTENSIONS[@]}"; do
+    [[ "$ext" == "$e" ]] && return 0
+  done
+  return 1
+}
+
+# Final safety layer: only allow plain-text files
+is_plain_text() {
+  local mime
+  mime=$(file --mime-type -b "$1")
+
+  case "$mime" in
+    text/*)
+      return 0
+      ;;
+    application/json)
+      return 0
+      ;;
+    application/xml)
+      return 0
+      ;;
+    application/javascript)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+was_modified_during_run() {
+  local file="$1"
+  local mod_time
+
+  # Linux (GNU stat) or macOS (BSD stat)
+  mod_time=$(stat -c %Y "$file" 2>/dev/null || stat -f %m "$file")
+  (( mod_time > START_TIME ))
+}
+
+# ------------------------------------------------------------
+# Main Processing
+# ------------------------------------------------------------
+
+find "$TARGET_DIR" -type f | sort | while read -r file; do
+
+  # Skip hidden paths
+  if is_hidden "$file"; then
     continue
   fi
 
-  echo "------------------------------------------------------------"
-  echo "FILE: $file"
-  echo "------------------------------------------------------------"
-  echo
+  # Skip files modified during execution
+  if was_modified_during_run "$file"; then
+    continue
+  fi
 
+  # Compute relative path
+  rel="${file#$TARGET_DIR/}"
+  [[ "$file" == "$TARGET_DIR" ]] && rel=$(basename "$file")
+
+  # Hard exclusions
+  if is_excluded_dir "$file" ||
+     is_excluded_file "$file" ||
+     is_excluded_pattern "$file" ||
+     is_excluded_extension "$file"; then
+
+    echo "=== $rel [not listed] ==="
+    continue
+  fi
+
+  # MIME safety check
+  if ! is_plain_text "$file"; then
+    echo "=== $rel [not listed] ==="
+    continue
+  fi
+
+  # Included file
+  echo "=== $rel ==="
   cat "$file"
   echo
-  echo
 
-done < <("${FIND_CMD[@]}" | sort)
+done
 
-# -------------------------
-# Finalize output
-# -------------------------
+# ------------------------------------------------------------
+# Finalize
+# ------------------------------------------------------------
 
 if [[ -n "$OUTPUT_FILE" ]]; then
   mv "$TMP_OUTPUT" "$OUTPUT_FILE"
