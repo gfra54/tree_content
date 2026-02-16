@@ -1,248 +1,137 @@
-# Tree Content
+# tree_content
 
-A shell script that recursively lists all files in a directory and prints their content in a structured format.
+Recursively prints all files in a directory in a structured format, including file contents.
 
-It is designed to generate a complete project context that can be fed into a Large Language Model (LLM) before prompting.
+Designed to generate full project context for LLM ingestion, code review, or archival — while safely excluding large, binary, or sensitive files.
 
 ---
 
-## Overview
-
-The script:
+## What It Does
 
 - Recursively scans the current directory
-- Prints each file using a clear header format
+- Prints each file with a clear header
 - Outputs file contents (unless excluded)
-- Still prints excluded files, but marks them as `[not listed]`
+- Excluded files are still shown, marked as `[not listed]`
 - Skips hidden paths
 - Skips files modified during execution
-- Supports custom exclusions
-- Can output to stdout or a file
+- Works on Linux and macOS
 
 ---
 
 ## Output Format
 
-For included files:
+Included file:
 
 ```
 === relative/path/to/file ===
-[file content here]
+[file content]
 ```
 
-For excluded files:
+Excluded file:
 
 ```
 === relative/path/to/file [not listed] ===
 ```
 
-This preserves the project structure while protecting large, binary, or sensitive files.
+This preserves full project structure without dumping binaries or secrets.
 
 ---
 
-## Features
+# Installation
 
-- `--exclude="term1,term2"`  
-  Add additional exclusion terms (CSV format).
-
-- `--output="file.txt"`  
-  Write output to a file instead of stdout.
-
-- Built‑in exclusion rules for:
-  - Archives
-  - Dependencies
-  - Version control
-  - Secrets
-  - Build artifacts
-  - Media files
-  - Documents
-  - Binaries
-  - Databases
-  - IDE/system files
-
-- Cross-platform compatible (Linux + macOS)
-
----
-
-## Default Exclusions
-
-The following are always excluded from content output (but still listed as `[not listed]`):
-
-### Archives
-```
-.tar .gz .zip .rar .7z .bz2
-```
-
-### Dependencies
-```
-node_modules vendor
-```
-
-### Version Control
-```
-.git .svn
-```
-
-### Environment / Secrets
-```
-.env .env.*
-secrets credentials
-.key .pem .crt
-id_rsa id_dsa
-wp-config
-```
-
-### Build Output
-```
-dist build target coverage
-.next .nuxt .out .cache
-tmp
-```
-
-### Databases
-```
-.sqlite .db .sql
-```
-
-### IDE / System
-```
-.DS_Store .idea .vscode Thumbs.db
-```
-
-### Media Files
-```
-.png .jpg .jpeg .gif .webp .svg
-.mp4 .mov .avi .mkv
-.mp3 .wav .ogg .flac
-```
-
-### Documents
-```
-.pdf .doc .docx .xls .xlsx .ppt .pptx
-```
-
-### Binaries
-```
-.exe .dll .so .dylib .bin .iso
-```
-
----
-
-## Installation
-
-Make the script executable:
-
-```bash
-chmod +x tree_content.sh
-```
-
-Run it:
-
-```bash
-./tree_content.sh
-```
-
----
-
-## Usage Examples
-
-### Basic Usage
-
-```bash
-./tree_content.sh
-```
-
-Prints everything (except excluded content) to stdout.
-
----
-
-### Output to a File
-
-```bash
-./tree_content.sh --output="project_dump.txt"
-```
-
----
-
-### Add Custom Exclusions
-
-```bash
-./tree_content.sh --exclude="tests,migrations"
-```
-
----
-
-### Combine Options
-
-```bash
-./tree_content.sh \
-  --exclude="tests,migrations" \
-  --output="context.txt"
-```
-
----
-
-## Using with wget (One‑Liner Execution)
-
-You can download and execute the script directly:
+## Run Without Installing
 
 ```bash
 wget -qO- https://example.com/tree_content.sh | bash
 ```
 
-### Passing Parameters
-
-When piping into bash, you must use `bash -s --`:
+Pass arguments like this:
 
 ```bash
 wget -qO- https://example.com/tree_content.sh | bash -s -- \
-  --exclude="tests,migrations" \
+  --exclude="tests" \
   --output="context.txt"
 ```
 
-Or using curl:
+---
+
+## Install Globally (Recommended)
+
+Install system-wide so you can use it anywhere:
 
 ```bash
-curl -fsSL https://example.com/tree_content.sh | bash -s -- \
-  --exclude="tests,migrations"
+sudo wget -qO /usr/bin/tree_content https://example.com/tree_content.sh \
+  && sudo chmod +x /usr/bin/tree_content
 ```
 
-Explanation:
+Then simply run:
 
-- `-s` tells bash to read from stdin
-- `--` separates bash options from script arguments
-- Everything after `--` is passed to the script
+```bash
+tree_content
+```
 
----
+### Alternative (curl)
 
-## Recommended Workflow for LLM Usage
+```bash
+sudo curl -fsSL https://example.com/tree_content.sh -o /usr/bin/tree_content \
+  && sudo chmod +x /usr/bin/tree_content
+```
 
-1. Run:
+### Uninstall
 
-   ```bash
-   ./tree_content.sh --output="context.txt"
-   ```
-
-2. Upload `context.txt` into your LLM.
-
-3. Prompt:
-
-   > Here is my project. Help me refactor X.
-
-Because excluded files are still listed (but not dumped), the model understands full project structure without being polluted by binaries or secrets.
+```bash
+sudo rm /usr/bin/tree_content
+```
 
 ---
 
-## Safety Notes
+# Usage
 
-- Never remove `.env` or secret exclusions when sharing publicly.
-- Be careful running this at filesystem root.
-- Large projects may produce very large output files.
-- Dependency folders should remain excluded for best results.
+## Basic
+
+```bash
+tree_content
+```
+
+## Output to File
+
+```bash
+tree_content --output="context.txt"
+```
+
+## Add Custom Exclusions
+
+```bash
+tree_content --exclude="tests,migrations"
+```
+
+## Combine Options
+
+```bash
+tree_content --exclude="tests" --output="context.txt"
+```
 
 ---
 
-## Requirements
+# Why This Is Useful for LLMs
+
+- Provides complete project structure
+- Avoids leaking secrets
+- Avoids dumping media/binary files
+- Avoids dependency folders
+- Keeps prompt size reasonable
+
+Typical workflow:
+
+```bash
+tree_content --output="context.txt"
+```
+
+Upload `context.txt` to your LLM and prompt it with full context.
+
+---
+
+# Requirements
 
 - Bash
 - find
@@ -251,7 +140,89 @@ Because excluded files are still listed (but not dumped), the model understands 
 
 ---
 
-## License
+# Default Exclusions
+
+These files are always excluded from content output but still listed as `[not listed]`.
+
+## Archives
+```
+.tar .gz .zip .rar .7z .bz2
+```
+
+## Dependencies
+```
+node_modules
+vendor
+```
+
+## Version Control
+```
+.git
+.svn
+```
+
+## Environment / Secrets
+```
+.env
+.env.*
+secrets
+credentials
+.key
+.pem
+.crt
+id_rsa
+id_dsa
+wp-config
+```
+
+## Build Output
+```
+dist
+build
+target
+coverage
+.next
+.nuxt
+.out
+.cache
+tmp
+```
+
+## Databases
+```
+.sqlite
+.db
+.sql
+```
+
+## IDE / System
+```
+.DS_Store
+.idea
+.vscode
+Thumbs.db
+```
+
+## Media Files
+```
+.png .jpg .jpeg .gif .webp .svg
+.mp4 .mov .avi .mkv
+.mp3 .wav .ogg .flac
+```
+
+## Documents
+```
+.pdf .doc .docx .xls .xlsx .ppt .pptx
+```
+
+## Binaries
+```
+.exe .dll .so .dylib .bin .iso
+```
+
+---
+
+# License
 
 MIT
 ```
