@@ -10,6 +10,7 @@
 #   --include-only="csv"
 #   --display-unlisted=true
 #   --output="file"
+#   --watch
 #
 # Safe by default:
 #   - Skips hidden paths
@@ -20,14 +21,13 @@
 
 set -euo pipefail
 
-START_TIME=$(date +%s)
-
 TARGET_DIR="."
 USER_EXCLUDES=""
 INCLUDE_ONLY=""
 DISPLAY_UNLISTED="false"
 OUTPUT_FILE=""
 TMP_OUTPUT=""
+WATCH_MODE="false"
 
 # ------------------------------------------------------------
 # Default Exclusions
@@ -81,6 +81,10 @@ while [[ $# -gt 0 ]]; do
       OUTPUT_FILE="${1#*=}"
       shift
       ;;
+    --watch)
+      WATCH_MODE="true"
+      shift
+      ;;
     -*)
       echo "Unknown option: $1"
       exit 1
@@ -98,15 +102,6 @@ if [[ ! -d "$TARGET_DIR" ]]; then
 fi
 
 TARGET_DIR="${TARGET_DIR%/}"
-
-# ------------------------------------------------------------
-# Output Redirection
-# ------------------------------------------------------------
-
-if [[ -n "$OUTPUT_FILE" ]]; then
-  TMP_OUTPUT=$(mktemp)
-  exec > "$TMP_OUTPUT"
-fi
 
 # ------------------------------------------------------------
 # Helpers
@@ -156,7 +151,6 @@ is_excluded_pattern() {
   done
 
   csv_contains "$1" "$USER_EXCLUDES" && return 0
-
   return 1
 }
 
@@ -182,12 +176,6 @@ is_plain_text() {
   esac
 }
 
-was_modified_during_run() {
-  local mod_time
-  mod_time=$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1")
-  (( mod_time > START_TIME ))
-}
-
 print_unlisted() {
   local rel="$1"
   if should_print_unlisted; then
@@ -196,56 +184,90 @@ print_unlisted() {
 }
 
 # ------------------------------------------------------------
-# Main
+# Core Runner
 # ------------------------------------------------------------
 
-find "$TARGET_DIR" -type f | sort | while read -r file; do
+run_tree() {
 
-  is_hidden "$file" && continue
-  was_modified_during_run "$file" && continue
+  START_TIME=$(date +%s)
+  PRINTED_FILES=()
 
-  rel="${file#$TARGET_DIR/}"
-
-  # Hard exclusions
-  if is_excluded_dir "$file" ||
-     is_excluded_file "$file" ||
-     is_excluded_pattern "$file" ||
-     is_excluded_extension "$file"; then
-
-    print_unlisted "$rel"
-    continue
+  if [[ -n "$OUTPUT_FILE" ]]; then
+    TMP_OUTPUT=$(mktemp)
+    exec > "$TMP_OUTPUT"
   fi
 
-  # MIME safety
-  if ! is_plain_text "$file"; then
-    print_unlisted "$rel"
-    continue
-  fi
+  while IFS= read -r file; do
 
-  # Include-only mode
-  if [[ -n "$INCLUDE_ONLY" ]]; then
-    if csv_contains "$file" "$INCLUDE_ONLY"; then
-      echo "=== $rel ==="
-      cat "$file"
-      echo
-    else
+    is_hidden "$file" && continue
+
+    rel="${file#$TARGET_DIR/}"
+
+    if is_excluded_dir "$file" ||
+       is_excluded_file "$file" ||
+       is_excluded_pattern "$file" ||
+       is_excluded_extension "$file"; then
+
       print_unlisted "$rel"
+      continue
     fi
-    continue
-  fi
 
-  # Default behavior
-  echo "=== $rel ==="
-  cat "$file"
+    if ! is_plain_text "$file"; then
+      print_unlisted "$rel"
+      continue
+    fi
+
+    if [[ -n "$INCLUDE_ONLY" ]]; then
+      if csv_contains "$file" "$INCLUDE_ONLY"; then
+        echo "=== $rel ==="
+        cat "$file"
+        echo
+        PRINTED_FILES+=("$file")
+      else
+        print_unlisted "$rel"
+      fi
+      continue
+    fi
+
+    echo "=== $rel ==="
+    cat "$file"
+    echo
+
+    PRINTED_FILES+=("$file")
+
+  done < <(find "$TARGET_DIR" -type f | sort)
+
+  if [[ -n "$OUTPUT_FILE" ]]; then
+    mv "$TMP_OUTPUT" "$OUTPUT_FILE"
+    exec > /dev/tty
+    echo "Output written to $OUTPUT_FILE"
+  fi
+}
+
+# ------------------------------------------------------------
+# Execution
+# ------------------------------------------------------------
+
+if [[ "$WATCH_MODE" != "true" ]]; then
+  run_tree
+else
+  echo "Watch mode enabled. Press Ctrl+C to stop."
   echo
 
-done
+  while true; do
+    clear
+    run_tree
 
-# ------------------------------------------------------------
-# Finalize
-# ------------------------------------------------------------
+    echo
+    echo "Waiting for changes..."
 
-if [[ -n "$OUTPUT_FILE" ]]; then
-  mv "$TMP_OUTPUT" "$OUTPUT_FILE"
-  echo "Output written to $OUTPUT_FILE"
+    if command -v inotifywait >/dev/null 2>&1; then
+      inotifywait -e modify "${PRINTED_FILES[@]}" >/dev/null 2>&1
+    elif command -v fswatch >/dev/null 2>&1; then
+      fswatch -1 "${PRINTED_FILES[@]}" >/dev/null 2>&1
+    else
+      echo "Error: --watch requires inotifywait (Linux) or fswatch (macOS)"
+      exit 1
+    fi
+  done
 fi
