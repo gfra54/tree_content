@@ -6,7 +6,7 @@
 # Recursively prints project files in structured format.
 #
 # Features:
-#   --exclude="csv"
+#   --exclude="foo"      (can be used multiple times)
 #   --include-only="csv"
 #   --display-unlisted=true
 #   --output="file"
@@ -23,11 +23,13 @@ set -euo pipefail
 START_TIME=$(date +%s)
 
 TARGET_DIR="."
-USER_EXCLUDES=""
 INCLUDE_ONLY=""
 DISPLAY_UNLISTED="false"
 OUTPUT_FILE=""
 TMP_OUTPUT=""
+
+# ✅ accumulate multiple excludes
+USER_EXCLUDES=()
 
 # ------------------------------------------------------------
 # Default Exclusions
@@ -42,6 +44,11 @@ EXCLUDED_DIRS=(
 
 EXCLUDED_FILES=(
   .DS_Store Thumbs.db
+  composer.lock
+  package-lock.json
+  yarn.lock
+  pnpm-lock.yaml
+  bun.lockb
 )
 
 EXCLUDED_PATTERNS=(
@@ -50,12 +57,28 @@ EXCLUDED_PATTERNS=(
 )
 
 EXCLUDED_EXTENSIONS=(
+  # archives
   tar gz zip rar 7z bz2
+
+  # databases
   sqlite db sql
+
+  # images
   png jpg jpeg gif webp svg
+
+  # video
   mp4 mov avi mkv
+
+  # audio
   mp3 wav ogg flac
-  pdf doc docx xls xlsx ppt pptx
+
+  # documents
+  pdf doc docx
+
+  # ✅ data files
+  csv tsv xls xlsx ods numbers
+
+  # binaries
   exe dll so dylib bin iso
 )
 
@@ -66,7 +89,7 @@ EXCLUDED_EXTENSIONS=(
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --exclude=*)
-      USER_EXCLUDES="${1#*=}"
+      USER_EXCLUDES+=("${1#*=}")
       shift
       ;;
     --include-only=*)
@@ -151,11 +174,17 @@ is_excluded_file() {
 }
 
 is_excluded_pattern() {
+  local path="$1"
+
   for p in "${EXCLUDED_PATTERNS[@]}"; do
-    [[ "$1" == *"$p"* ]] && return 0
+    [[ "$path" == *"$p"* ]] && return 0
   done
 
-  csv_contains "$1" "$USER_EXCLUDES" && return 0
+  # ✅ accumulated user excludes
+  for ex in "${USER_EXCLUDES[@]}"; do
+    [[ -z "$ex" ]] && continue
+    [[ "$path" == *"$ex"* ]] && return 0
+  done
 
   return 1
 }
@@ -206,7 +235,6 @@ find "$TARGET_DIR" -type f | sort | while read -r file; do
 
   rel="${file#$TARGET_DIR/}"
 
-  # Hard exclusions
   if is_excluded_dir "$file" ||
      is_excluded_file "$file" ||
      is_excluded_pattern "$file" ||
@@ -216,13 +244,11 @@ find "$TARGET_DIR" -type f | sort | while read -r file; do
     continue
   fi
 
-  # MIME safety
   if ! is_plain_text "$file"; then
     print_unlisted "$rel"
     continue
   fi
 
-  # Include-only mode
   if [[ -n "$INCLUDE_ONLY" ]]; then
     if csv_contains "$file" "$INCLUDE_ONLY"; then
       echo "=== $rel ==="
@@ -234,7 +260,6 @@ find "$TARGET_DIR" -type f | sort | while read -r file; do
     continue
   fi
 
-  # Default behavior
   echo "=== $rel ==="
   cat "$file"
   echo
