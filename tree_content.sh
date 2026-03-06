@@ -83,6 +83,123 @@ EXCLUDED_EXTENSIONS=(
 )
 
 # ------------------------------------------------------------
+# Help
+# ------------------------------------------------------------
+
+print_help() {
+cat << 'EOF'
+
+tree_content
+============
+
+Recursively prints project files in a structured format.
+
+By default this script:
+  • Skips hidden files and directories
+  • Skips common build/vendor/cache folders
+  • Skips binaries, media, archives, databases
+  • Skips sensitive files (.env, keys, credentials, etc.)
+  • Skips files modified during execution
+  • Prints only verified plain-text files
+
+
+USAGE
+-----
+
+  tree_content [directory] [options]
+
+
+ARGUMENTS
+---------
+
+  directory
+      Target directory to scan.
+      Default: current directory (.)
+
+OPTIONS
+-------
+
+  --exclude="pattern"
+      Exclude paths containing this pattern.
+      Can be used multiple times.
+
+      Example:
+        tree_content . --exclude="tests" --exclude="migrations"
+
+
+  --include-only="csv"
+      Only print files whose path contains one of the
+      comma-separated values.
+
+      Example:
+        tree_content . --include-only="controller,service"
+
+
+  --display-unlisted=true
+      Displays skipped files as:
+        === path/to/file [not listed] ===
+
+      Useful for debugging filters.
+
+      Example:
+        tree_content . --display-unlisted=true
+
+
+  --output="file"
+      Write output to a file instead of stdout.
+
+      Example:
+        tree_content . --output="project.txt"
+
+
+  -h, --help
+      Display this help message and exit.
+
+
+EXAMPLES
+--------
+
+  1) Print everything (safe defaults):
+     tree_content
+
+  2) Scan specific directory:
+     tree_content ./src
+
+  3) Exclude additional directories:
+     tree_content . --exclude="tests" --exclude="docs"
+
+  4) Only include specific file types or names:
+     tree_content . --include-only="controller,service,config"
+
+  5) Show skipped files:
+     tree_content . --display-unlisted=true
+
+  6) Export result:
+     tree_content . --output="snapshot.txt"
+
+  7) Combine filters:
+     tree_content ./app \
+       --exclude="tests" \
+       --include-only="controller,service" \
+       --display-unlisted=true \
+       --output="filtered.txt"
+
+
+NOTES
+-----
+
+• Multiple --exclude flags are supported.
+• --include-only matches substrings in full file path.
+• CSV values must be comma-separated without spaces.
+• Only plain text MIME types are printed.
+• Designed for safe project introspection.
+
+
+EOF
+}
+
+
+# ------------------------------------------------------------
 # Argument Parsing
 # ------------------------------------------------------------
 
