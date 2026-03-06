@@ -198,13 +198,16 @@ NOTES
 EOF
 }
 
-
 # ------------------------------------------------------------
 # Argument Parsing
 # ------------------------------------------------------------
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    -h|--help)
+      print_help
+      exit 0
+      ;;
     --exclude=*)
       USER_EXCLUDES+=("${1#*=}")
       shift
@@ -223,6 +226,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     -*)
       echo "Unknown option: $1"
+      echo "Use --help to see available options."
       exit 1
       ;;
     *)
@@ -231,6 +235,7 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
 
 if [[ ! -d "$TARGET_DIR" ]]; then
   echo "Error: Directory '$TARGET_DIR' does not exist."
