@@ -196,11 +196,6 @@ is_excluded_pattern() {
     [[ "$path" == *"$p"* ]] && return 0
   done
 
-  for ex in "${USER_EXCLUDES[@]}"; do
-    [[ -z "$ex" ]] && continue
-    [[ "$path" == *"$ex"* ]] && return 0
-  done
-
   return 1
 }
 
@@ -269,16 +264,19 @@ fi
 
 "${FIND_CMD[@]}" | sort | while read -r file; do
 
-  is_hidden "$file" && continue
-  was_modified_during_run "$file" && continue
-  
-  rel="${file#$TARGET_DIR/}"
-  
-  # hard skip user excludes
+  # ----------------------------------------------------------
+  # HARD USER EXCLUDE (highest priority)
+  # ----------------------------------------------------------
+
   for ex in "${USER_EXCLUDES[@]}"; do
     [[ "$file" == *"$ex"* ]] && continue 2
   done
-  
+
+  is_hidden "$file" && continue
+  was_modified_during_run "$file" && continue
+
+  rel="${file#$TARGET_DIR/}"
+
   if is_excluded_file "$file" ||
      is_excluded_pattern "$file" ||
      is_excluded_extension "$file"; then
