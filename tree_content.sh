@@ -28,7 +28,6 @@ DISPLAY_UNLISTED="false"
 OUTPUT_FILE=""
 TMP_OUTPUT=""
 
-# ✅ accumulate multiple excludes
 USER_EXCLUDES=()
 
 # ------------------------------------------------------------
@@ -57,28 +56,13 @@ EXCLUDED_PATTERNS=(
 )
 
 EXCLUDED_EXTENSIONS=(
-  # archives
   tar gz zip rar 7z bz2
-
-  # databases
   sqlite db sql
-
-  # images
   png jpg jpeg gif webp svg
-
-  # video
   mp4 mov avi mkv
-
-  # audio
   mp3 wav ogg flac
-
-  # documents
   pdf doc docx
-
-  # ✅ data files
   csv tsv xls xlsx ods numbers
-
-  # binaries
   exe dll so dylib bin iso
 )
 
@@ -97,103 +81,48 @@ Recursively prints project files in a structured format.
 By default this script:
   • Skips hidden files and directories
   • Skips common build/vendor/cache folders
-  • Skips binaries, media, archives, databases
-  • Skips sensitive files (.env, keys, credentials, etc.)
+  • Skips binaries, media, archives and databases
   • Skips files modified during execution
-  • Prints only verified plain-text files
+  • Only prints plain text files
 
-
-USAGE
+Usage
 -----
 
-  tree_content [directory] [options]
+tree_content [options]
 
-
-ARGUMENTS
----------
-
-  directory
-      Target directory to scan.
-      Default: current directory (.)
-
-OPTIONS
+Options
 -------
 
-  --exclude="pattern"
-      Exclude paths containing this pattern.
-      Can be used multiple times.
+--exclude="pattern"
+    Exclude anything containing this string in its path.
+    Can be used multiple times.
 
-      Example:
-        tree_content . --exclude="tests" --exclude="migrations"
+--include-only="a,b,c"
+    Only print files whose path contains one of the terms.
 
+--display-unlisted=true
+    Show placeholders for excluded files.
 
-  --include-only="csv"
-      Only print files whose path contains one of the
-      comma-separated values.
+--output="file"
+    Write output to a file instead of stdout.
 
-      Example:
-        tree_content . --include-only="controller,service"
+--help
+    Show this help.
 
-
-  --display-unlisted=true
-      Displays skipped files as:
-        === path/to/file [not listed] ===
-
-      Useful for debugging filters.
-
-      Example:
-        tree_content . --display-unlisted=true
-
-
-  --output="file"
-      Write output to a file instead of stdout.
-
-      Example:
-        tree_content . --output="project.txt"
-
-
-  -h, --help
-      Display this help message and exit.
-
-
-EXAMPLES
+Examples
 --------
 
-  1) Print everything (safe defaults):
-     tree_content
+Exclude json and backups:
 
-  2) Scan specific directory:
-     tree_content ./src
+  tree_content --exclude="json" --exclude="backups"
 
-  3) Exclude additional directories:
-     tree_content . --exclude="tests" --exclude="docs"
+Only include PHP files:
 
-  4) Only include specific file types or names:
-     tree_content . --include-only="controller,service,config"
+  tree_content --include-only="php"
 
-  5) Show skipped files:
-     tree_content . --display-unlisted=true
+Export project snapshot:
 
-  6) Export result:
-     tree_content . --output="snapshot.txt"
-
-  7) Combine filters:
-     tree_content ./app \
-       --exclude="tests" \
-       --include-only="controller,service" \
-       --display-unlisted=true \
-       --output="filtered.txt"
-
-
-NOTES
------
-
-• Multiple --exclude flags are supported.
-• --include-only matches substrings in full file path.
-• CSV values must be comma-separated without spaces.
-• Only plain text MIME types are printed.
-• Designed for safe project introspection.
-
+  tree_content --output="project.txt"
 
 EOF
 }
@@ -202,51 +131,26 @@ EOF
 # Argument Parsing
 # ------------------------------------------------------------
 
-while [[ $# -gt 0 ]]; do
-  case "$1" in
-    -h|--help)
+for arg in "$@"; do
+  case $arg in
+    --exclude=*)
+      USER_EXCLUDES+=("${arg#*=}")
+      ;;
+    --include-only=*)
+      INCLUDE_ONLY="${arg#*=}"
+      ;;
+    --display-unlisted=*)
+      DISPLAY_UNLISTED="${arg#*=}"
+      ;;
+    --output=*)
+      OUTPUT_FILE="${arg#*=}"
+      ;;
+    --help)
       print_help
       exit 0
       ;;
-    --exclude=*)
-      USER_EXCLUDES+=("${1#*=}")
-      shift
-      ;;
-    --include-only=*)
-      INCLUDE_ONLY="${1#*=}"
-      shift
-      ;;
-    --display-unlisted=*)
-      DISPLAY_UNLISTED="${1#*=}"
-      shift
-      ;;
-    --output=*)
-      OUTPUT_FILE="${1#*=}"
-      shift
-      ;;
-    -*)
-      echo "Unknown option: $1"
-      echo "Use --help to see available options."
-      exit 1
-      ;;
-    *)
-      TARGET_DIR="$1"
-      shift
-      ;;
   esac
 done
-
-
-if [[ ! -d "$TARGET_DIR" ]]; then
-  echo "Error: Directory '$TARGET_DIR' does not exist."
-  exit 1
-fi
-
-TARGET_DIR="${TARGET_DIR%/}"
-
-# ------------------------------------------------------------
-# Output Redirection
-# ------------------------------------------------------------
 
 if [[ -n "$OUTPUT_FILE" ]]; then
   TMP_OUTPUT=$(mktemp)
@@ -254,15 +158,12 @@ if [[ -n "$OUTPUT_FILE" ]]; then
 fi
 
 # ------------------------------------------------------------
-# Helpers
+# Utility Functions
 # ------------------------------------------------------------
 
 csv_contains() {
   local value="$1"
   local csv="$2"
-
-  [[ -z "$csv" ]] && return 1
-
   IFS=',' read -ra TERMS <<< "$csv"
   for t in "${TERMS[@]}"; do
     [[ -z "$t" ]] && continue
@@ -276,14 +177,7 @@ should_print_unlisted() {
 }
 
 is_hidden() {
-  [[ "$1" == */.* ]]
-}
-
-is_excluded_dir() {
-  for dir in "${EXCLUDED_DIRS[@]}"; do
-    [[ "$1" == *"/$dir/"* ]] && return 0
-  done
-  return 1
+  [[ "$(basename "$1")" == .* ]]
 }
 
 is_excluded_file() {
@@ -302,7 +196,6 @@ is_excluded_pattern() {
     [[ "$path" == *"$p"* ]] && return 0
   done
 
-  # ✅ accumulated user excludes
   for ex in "${USER_EXCLUDES[@]}"; do
     [[ -z "$ex" ]] && continue
     [[ "$path" == *"$ex"* ]] && return 0
@@ -347,21 +240,43 @@ print_unlisted() {
 }
 
 # ------------------------------------------------------------
+# Build find prune rules
+# ------------------------------------------------------------
+
+PRUNE_ARGS=()
+
+for dir in "${EXCLUDED_DIRS[@]}"; do
+  PRUNE_ARGS+=( -path "*/$dir" -o -path "*/$dir/*" -o )
+done
+
+for ex in "${USER_EXCLUDES[@]}"; do
+  PRUNE_ARGS+=( -path "*$ex*" -o )
+done
+
+if [[ ${#PRUNE_ARGS[@]} -gt 0 ]]; then
+  unset 'PRUNE_ARGS[${#PRUNE_ARGS[@]}-1]'
+fi
+
+# ------------------------------------------------------------
 # Main
 # ------------------------------------------------------------
 
-find "$TARGET_DIR" -type f | sort | while read -r file; do
+if [[ ${#PRUNE_ARGS[@]} -gt 0 ]]; then
+  FIND_CMD=(find "$TARGET_DIR" \( "${PRUNE_ARGS[@]}" \) -prune -o -type f -print)
+else
+  FIND_CMD=(find "$TARGET_DIR" -type f)
+fi
+
+"${FIND_CMD[@]}" | sort | while read -r file; do
 
   is_hidden "$file" && continue
   was_modified_during_run "$file" && continue
 
   rel="${file#$TARGET_DIR/}"
 
-  if is_excluded_dir "$file" ||
-     is_excluded_file "$file" ||
+  if is_excluded_file "$file" ||
      is_excluded_pattern "$file" ||
      is_excluded_extension "$file"; then
-
     print_unlisted "$rel"
     continue
   fi
