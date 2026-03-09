@@ -271,12 +271,18 @@ fi
 
   is_hidden "$file" && continue
   was_modified_during_run "$file" && continue
-
+  
   rel="${file#$TARGET_DIR/}"
-
+  
+  # hard skip user excludes
+  for ex in "${USER_EXCLUDES[@]}"; do
+    [[ "$file" == *"$ex"* ]] && continue 2
+  done
+  
   if is_excluded_file "$file" ||
      is_excluded_pattern "$file" ||
      is_excluded_extension "$file"; then
+
     print_unlisted "$rel"
     continue
   fi
