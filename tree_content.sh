@@ -253,6 +253,32 @@ if [[ ${#PRUNE_ARGS[@]} -gt 0 ]]; then
 fi
 
 # ------------------------------------------------------------
+# Build include-only rules for find (performance optimization)
+# ------------------------------------------------------------
+
+INCLUDE_ARGS=()
+
+if [[ -n "$INCLUDE_ONLY" ]]; then
+  IFS=',' read -ra TERMS <<< "$INCLUDE_ONLY"
+
+  INCLUDE_ARGS+=( \( )
+
+  for i in "${!TERMS[@]}"; do
+    term="${TERMS[$i]}"
+    [[ -z "$term" ]] && continue
+
+    if [[ $i -gt 0 ]]; then
+      INCLUDE_ARGS+=( -o )
+    fi
+
+    INCLUDE_ARGS+=( -path "*$term*" )
+  done
+
+  INCLUDE_ARGS+=( \) )
+fi
+
+
+# ------------------------------------------------------------
 # Build text tree of directory structure
 # ------------------------------------------------------------
 
@@ -375,9 +401,17 @@ PREAMBLE
 print_preamble
 
 if [[ ${#PRUNE_ARGS[@]} -gt 0 ]]; then
-  FIND_CMD=(find "$TARGET_DIR" \( "${PRUNE_ARGS[@]}" \) -prune -o -type f -print)
+  if [[ ${#INCLUDE_ARGS[@]} -gt 0 ]]; then
+    FIND_CMD=(find "$TARGET_DIR" \( "${PRUNE_ARGS[@]}" \) -prune -o "${INCLUDE_ARGS[@]}" -type f -print)
+  else
+    FIND_CMD=(find "$TARGET_DIR" \( "${PRUNE_ARGS[@]}" \) -prune -o -type f -print)
+  fi
 else
-  FIND_CMD=(find "$TARGET_DIR" -type f)
+  if [[ ${#INCLUDE_ARGS[@]} -gt 0 ]]; then
+    FIND_CMD=(find "$TARGET_DIR" "${INCLUDE_ARGS[@]}" -type f)
+  else
+    FIND_CMD=(find "$TARGET_DIR" -type f)
+  fi
 fi
 
 "${FIND_CMD[@]}" | sort | while read -r file; do
