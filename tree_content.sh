@@ -180,6 +180,10 @@ is_hidden() {
   [[ "$(basename "$1")" == .* ]]
 }
 
+is_htaccess() {
+  [[ "$(basename "$1")" == ".htaccess" ]]
+}
+
 is_excluded_file() {
   local base
   base=$(basename "$1")
@@ -291,9 +295,10 @@ build_tree() {
     local base
     base=$(basename "$entry")
 
-    # Skip hidden
-    [[ "$base" == .* ]] && continue
+    # Skip hidden (but allow .htaccess)
+    [[ "$base" == .* && "$base" != ".htaccess" ]] && continue
 
+    
     # Skip excluded dirs
     local skip=0
     for exdir in "${EXCLUDED_DIRS[@]}"; do
@@ -424,11 +429,25 @@ fi
     [[ "$file" == *"$ex"* ]] && continue 2
   done
 
-  is_hidden "$file" && continue
+  is_hidden "$file" && ! is_htaccess "$file" && continue
   was_modified_during_run "$file" && continue
-
+  
   rel="${file#$TARGET_DIR/}"
+  
+  # ----------------------------------------------------------
+  # FORCE INCLUDE .htaccess (override all filters)
+  # ----------------------------------------------------------
+  
+  if is_htaccess "$file"; then
+    if ! was_modified_during_run "$file"; then
+      echo "=== $rel ==="
+      cat "$file"
+      echo
+    fi
+    continue
+  fi
 
+  
   if is_excluded_file "$file" ||
      is_excluded_pattern "$file" ||
      is_excluded_extension "$file"; then
